@@ -1,0 +1,6 @@
+{
+  "name": "TeacherOS",
+  "description": "An AI-powered teacher companion designed for Nigerian primary and secondary school educators to digitize lesson notes, generate NERDC curriculum-aligned lesson plans, receive smart teaching support, and generate multi-level assessments.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
