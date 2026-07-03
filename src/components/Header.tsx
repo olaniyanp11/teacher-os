@@ -10,10 +10,24 @@ interface HeaderProps {
   setIsOfflineMode: (val: boolean) => void;
   isSynced: boolean;
   onMenuOpen: () => void;
+  userName?: string;
+  userEmail?: string;
+  onLogout?: () => void;
 }
 
 const NIGERIAN_STATES = [
-  "Lagos", "FCT Abuja", "Oyo", "Kano", "Enugu", "Rivers", "Kaduna", "Ogun", "Delta", "Anambra", "Plateau", "Borno"
+  "Lagos",
+  "FCT Abuja",
+  "Oyo",
+  "Kano",
+  "Enugu",
+  "Rivers",
+  "Kaduna",
+  "Ogun",
+  "Delta",
+  "Anambra",
+  "Plateau",
+  "Borno",
 ];
 
 export default function Header({
@@ -25,13 +39,15 @@ export default function Header({
   setIsOfflineMode,
   isSynced,
   onMenuOpen,
+  userName,
+  userEmail,
+  onLogout,
 }: HeaderProps) {
   return (
     <header className="bg-white border-b border-gray-100 sticky top-0 z-50 shadow-sm" id="main-header">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           
-          {/* Logo Brand & Mobile Toggle */}
           <div className="flex items-center space-x-3">
             <button
               onClick={onMenuOpen}
@@ -56,10 +72,7 @@ export default function Header({
             </div>
           </div>
 
-          {/* Center Configuration controls */}
           <div className="flex flex-wrap items-center gap-3 md:gap-4 bg-gray-50/80 p-1.5 rounded-xl border border-gray-100 self-start md:self-center">
-            
-            {/* Teacher Details */}
             <div className="flex items-center space-x-2 px-2.5 py-1">
               <User className="w-4 h-4 text-gray-400" />
               <input
@@ -72,7 +85,6 @@ export default function Header({
               />
             </div>
 
-            {/* State/Region Selector */}
             <div className="flex items-center space-x-1.5 border-l border-gray-200 pl-3 py-1">
               <span className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">State:</span>
               <select
@@ -89,7 +101,6 @@ export default function Header({
               </select>
             </div>
 
-            {/* Offline simulation toggler */}
             <button
               onClick={() => setIsOfflineMode(!isOfflineMode)}
               className={`flex items-center space-x-1.5 px-3 py-1 rounded-lg border text-xs font-medium transition-all ${
@@ -114,8 +125,23 @@ export default function Header({
             </button>
           </div>
 
-          {/* Sync status & country label */}
-          <div className="flex items-center justify-between md:justify-end gap-3 border-t md:border-t-0 border-gray-100 pt-2.5 md:pt-0">
+          <div className="flex flex-wrap items-center justify-end gap-3 border-t md:border-t-0 border-gray-100 pt-2.5 md:pt-0">
+            {userName && (
+              <div className="text-right">
+                <p className="text-sm font-semibold text-gray-900 truncate max-w-[180px]">{userName}</p>
+                {userEmail && <p className="text-[11px] text-gray-500 truncate max-w-[180px]">{userEmail}</p>}
+              </div>
+            )}
+
+            {onLogout && (
+              <button
+                onClick={onLogout}
+                className="rounded-full border border-[#E8E4D9] bg-white px-3 py-1 text-[11px] font-semibold text-[#4A5D4E] transition hover:bg-[#F4F5F2]"
+              >
+                Logout
+              </button>
+            )}
+
             <div className="flex items-center space-x-1.5 bg-gray-50 px-2 py-1 rounded-md text-[10px] font-bold text-gray-500 uppercase tracking-wider border border-gray-100">
               <div className="flex space-x-0.5">
                 <span className="w-2.5 h-2 bg-emerald-600 rounded-sm"></span>
@@ -125,7 +151,6 @@ export default function Header({
               <span>NERDC COMPLIANT</span>
             </div>
 
-            {/* Database sync status */}
             <div className="flex items-center space-x-1">
               <span
                 className={`w-2 h-2 rounded-full ${
