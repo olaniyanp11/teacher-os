@@ -19,17 +19,28 @@ import {
   CheckCircle,
   X,
 } from "lucide-react";
+import { supabase } from "../lib/supabase";
 import { useAuth } from "../context/AuthContext";
 import { SavedLessonPlan, SavedQuiz } from "../curriculumData";
 
 interface Toast {
   text: string;
-  type: "success" | "warning" | "info";
+  type: "success" | "warning" | "info" | "error";
   id: string;
 }
 
+interface SupabaseLessonPlan {
+  id: string;
+  subject: string;
+  class_level: string;
+  topic: string;
+  duration: string;
+  content: string;
+  created_at: string | null;
+}
+
 export default function Dashboard() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, updateProfile, loading } = useAuth();
   const [teacherName, setTeacherName] = useState<string>(() => {
     return localStorage.getItem("teacherOS_name") || "Teacher Adebayo";
   });
@@ -39,6 +50,32 @@ export default function Dashboard() {
   const [isSidebarOpen, setIsSidebarOpen] = useState<boolean>(false);
   const [isSynced, setIsSynced] = useState<boolean>(true);
   const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const [savedUser, setSavedUser] = useState<{ name?: string; email?: string }>(() => {
+    if (typeof window === "undefined") {
+      return {};
+    }
+
+    const stored = localStorage.getItem("teacherOS_user");
+    if (!stored) {
+      return {};
+    }
+
+    try {
+      return JSON.parse(stored);
+    } catch {
+      return {};
+    }
+  });
+
+  const [lessonStats, setLessonStats] = useState({
+    totalLessons: 0,
+    lessonsThisWeek: 0,
+    ocrDocuments: 0,
+    aiConversations: 0,
+  });
+  const [recentLessons, setRecentLessons] = useState<SavedLessonPlan[]>([]);
+  const [isDashboardLoading, setIsDashboardLoading] = useState<boolean>(false);
 
   const [digitizedText, setDigitizedText] = useState("");
   const [digitizedSubject, setDigitizedSubject] = useState("Basic Science");
@@ -120,6 +157,110 @@ By the end of this JSS 1 session, students can:
   }, [teacherName]);
 
   useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(async () => {
+      const currentName = user.user_metadata?.full_name as string | undefined;
+      if (teacherName && teacherName !== currentName) {
+        await updateProfile(teacherName);
+      }
+    }, 700);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [teacherName, user, updateProfile]);
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    const fetchDashboardData = async () => {
+      if (!user) {
+        setLessonStats({ totalLessons: 0, lessonsThisWeek: 0, ocrDocuments: 0, aiConversations: 0 });
+        setRecentLessons([]);
+        return;
+      }
+
+      setIsDashboardLoading(true);
+      try {
+        const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+        const { data: lessonRows, error: lessonError, count: totalLessons } = await supabase
+          .from<SupabaseLessonPlan>("lesson_plans")
+          .select("id, subject, class_level, topic, duration, content, created_at", { count: "exact" })
+          .eq("user_id", user.id)
+          .order("created_at", { ascending: false })
+          .limit(20);
+
+        if (lessonError) {
+          throw lessonError;
+        }
+
+        const { count: lessonsThisWeek, error: weeklyError } = await supabase
+          .from("lesson_plans")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id)
+          .gte("created_at", weekAgo);
+
+        if (weeklyError) {
+          throw weeklyError;
+        }
+
+        const ocrResult = await supabase
+          .from("ocr_documents")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id);
+
+        const chatResult = await supabase
+          .from("assistant_conversations")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", user.id);
+
+        const ocrDocuments = ocrResult.error ? 0 : ocrResult.count ?? 0;
+        const aiConversations = chatResult.error ? 0 : chatResult.count ?? 0;
+
+        const lessons = (lessonRows ?? []).map((row) => ({
+          id: row.id,
+          createdAt: row.created_at ? new Date(row.created_at).toLocaleDateString() : new Date().toLocaleDateString(),
+          grade: row.class_level,
+          subject: row.subject,
+          topic: row.topic,
+          duration: row.duration,
+          materialsOption: "",
+          contentMarkdown: row.content,
+        }));
+
+        setSavedLessons(lessons);
+        setRecentLessons(lessons.slice(0, 3));
+        setLessonStats({
+          totalLessons: totalLessons ?? lessons.length,
+          lessonsThisWeek: lessonsThisWeek ?? 0,
+          ocrDocuments,
+          aiConversations,
+        });
+      } catch (error: unknown) {
+        console.error("Dashboard stats fetch failed:", error);
+        setLessonStats({ totalLessons: 0, lessonsThisWeek: 0, ocrDocuments: 0, aiConversations: 0 });
+      } finally {
+        setIsDashboardLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, [user, loading]);
+
+  useEffect(() => {
+    if (user?.user_metadata?.full_name) {
+      const fullName = user.user_metadata.full_name as string;
+      if (fullName !== teacherName) {
+        setTeacherName(fullName);
+      }
+    }
+  }, [user?.user_metadata?.full_name]);
+
+  useEffect(() => {
     localStorage.setItem("teacherOS_lessons", JSON.stringify(savedLessons));
     setIsSynced(false);
     const t = setTimeout(() => setIsSynced(true), 1100);
@@ -133,7 +274,7 @@ By the end of this JSS 1 session, students can:
     return () => clearTimeout(t);
   }, [savedQuizzes]);
 
-  const triggerNotification = (text: string, type: "success" | "warning" | "info" = "success") => {
+  const triggerNotification = (text: string, type: "success" | "warning" | "info" | "error" = "success") => {
     const id = Date.now().toString();
     setToasts((prev) => [...prev, { text, type, id }]);
     setTimeout(() => {
@@ -165,8 +306,9 @@ By the end of this JSS 1 session, students can:
     setIsSidebarOpen(false);
   };
 
-  const userName = (user?.user_metadata?.full_name as string) || user?.email || teacherName;
-  const userEmail = user?.email || undefined;
+  const userName = (user?.user_metadata?.full_name as string) || user?.email || savedUser.name || teacherName;
+  const userEmail = user?.email || savedUser.email || undefined;
+  const heroName = userName || teacherName;
 
   const handleLogout = async () => {
     await signOut();
@@ -183,6 +325,8 @@ By the end of this JSS 1 session, students can:
                 ? "bg-emerald-50 border-emerald-300 text-emerald-800"
                 : t.type === "warning"
                 ? "bg-amber-50 border-amber-300 text-amber-800"
+                : t.type === "error"
+                ? "bg-red-50 border-red-300 text-red-700"
                 : "bg-indigo-50 border-indigo-300 text-indigo-800"
             }`}
           >
@@ -392,7 +536,7 @@ By the end of this JSS 1 session, students can:
                       NERDC Curriculum Aligned
                     </span>
                     <h2 className="text-3xl font-serif text-[#3D352F] italic font-black leading-tight">
-                      Empowering {teacherName || "Nigerian Teachers"}
+                      Empowering {heroName || "Nigerian Teachers"}
                     </h2>
                     <p className="text-sm text-[#8B7E74] max-w-xl">
                       Eliminate hours of manual preparation. Scan notebook topics, check curriculum standards, generate classroom-ready evaluations, and get teaching suggestions optimized for large classroom environments in {selectedState} State.
@@ -421,42 +565,42 @@ By the end of this JSS 1 session, students can:
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                   <div className="bg-[#F2EDE4] p-5 rounded-2xl border border-[#E8E4D9] flex flex-col justify-between">
                     <div>
-                      <span className="text-[10px] font-bold text-[#8B7E74] uppercase tracking-wider block">Manual prep work saved</span>
+                      <span className="text-[10px] font-bold text-[#8B7E74] uppercase tracking-wider block">Total lesson plans</span>
                       <p className="text-3xl font-serif italic font-black text-[#4A5D4E] mt-1">
-                        {(savedLessons.length * 3.5 + savedQuizzes.length * 2).toFixed(1)} hrs
+                        {lessonStats.totalLessons}
                       </p>
                     </div>
-                    <span className="text-[10px] text-gray-500 mt-2 block">Calculated at 3h/plan saving average</span>
+                    <span className="text-[10px] text-gray-500 mt-2 block">Lessons saved for your account</span>
                   </div>
 
                   <div className="bg-[#F2EDE4] p-5 rounded-2xl border border-[#E8E4D9] flex flex-col justify-between">
                     <div>
-                      <span className="text-[10px] font-bold text-[#8B7E74] uppercase tracking-wider block">Compliance rating standard</span>
-                      <p className="text-3xl font-serif italic font-black text-[#4A5D4E] mt-1">98.2%</p>
+                      <span className="text-[10px] font-bold text-[#8B7E74] uppercase tracking-wider block">Lessons this week</span>
+                      <p className="text-3xl font-serif italic font-black text-[#4A5D4E] mt-1">
+                        {lessonStats.lessonsThisWeek}
+                      </p>
                     </div>
-                    <span className="text-[10px] text-emerald-800 font-bold mt-2 flex items-center gap-1">
-                      <CheckCircle className="w-3 h-3 text-emerald-600" /> All drafts checked via NERDC AI
-                    </span>
+                    <span className="text-[10px] text-gray-500 mt-2 block">Created in the last 7 days</span>
                   </div>
 
                   <div className="bg-[#F2EDE4] p-5 rounded-2xl border border-[#E8E4D9] flex flex-col justify-between">
                     <div>
-                      <span className="text-[10px] font-bold text-[#8B7E74] uppercase tracking-wider block">Saved lesson archives</span>
+                      <span className="text-[10px] font-bold text-[#8B7E74] uppercase tracking-wider block">OCR documents</span>
                       <p className="text-3xl font-serif italic font-black text-[#4A5D4E] mt-1">
-                        {savedLessons.length} Drafts
+                        {lessonStats.ocrDocuments}
                       </p>
                     </div>
-                    <span className="text-[10px] text-gray-500 mt-2 block">Locally cached in browser</span>
+                    <span className="text-[10px] text-gray-500 mt-2 block">Scanned notes processed</span>
                   </div>
 
                   <div className="bg-[#F2EDE4] p-5 rounded-2xl border border-[#E8E4D9] flex flex-col justify-between">
                     <div>
-                      <span className="text-[10px] font-bold text-[#8B7E74] uppercase tracking-wider block">Evaluations generated</span>
+                      <span className="text-[10px] font-bold text-[#8B7E74] uppercase tracking-wider block">AI conversations</span>
                       <p className="text-3xl font-serif italic font-black text-[#4A5D4E] mt-1">
-                        {savedQuizzes.length} Quizzes
+                        {lessonStats.aiConversations}
                       </p>
                     </div>
-                    <span className="text-[10px] text-[#E6A05D] font-bold mt-2 block">Complete with answers scheme</span>
+                    <span className="text-[10px] text-[#E6A05D] font-bold mt-2 block">Saved teaching assistant chats</span>
                   </div>
                 </div>
 

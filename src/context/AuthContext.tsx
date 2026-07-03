@@ -9,6 +9,7 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: AuthError | null }>;
   signUp: (fullName: string, email: string, password: string) => Promise<{ error: AuthError | null }>;
   signOut: () => Promise<{ error: AuthError | null }>;
+  updateProfile: (fullName: string) => Promise<{ error: AuthError | null }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -17,6 +18,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+
+  const persistUserDetails = (user: User | null) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    if (!user) {
+      localStorage.removeItem("teacherOS_user");
+      return;
+    }
+
+    const fullName = (user.user_metadata?.full_name as string) || user.email || "";
+    localStorage.setItem(
+      "teacherOS_user",
+      JSON.stringify({ name: fullName, email: user.email ?? "" }),
+    );
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -37,6 +55,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
+      persistUserDetails(currentSession?.user ?? null);
       setLoading(false);
     };
 
@@ -65,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (activeSession) {
         setSession(activeSession);
         setUser(activeSession.user ?? null);
+        persistUserDetails(activeSession.user ?? null);
       }
     }
 
@@ -85,7 +105,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (activeSession) {
         setSession(activeSession);
         setUser(activeSession.user ?? null);
+        persistUserDetails(activeSession.user ?? null);
       }
+    }
+
+    return { error };
+  };
+
+  const updateProfile = async (fullName: string) => {
+    const { data, error } = await supabase.auth.updateUser({
+      data: { full_name: fullName },
+    });
+
+    if (!error) {
+      const updatedUser = data?.user ?? null;
+      setUser(updatedUser);
+      persistUserDetails(updatedUser);
     }
 
     return { error };
@@ -96,6 +131,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!error) {
       setSession(null);
       setUser(null);
+      persistUserDetails(null);
     }
     return { error };
   };
